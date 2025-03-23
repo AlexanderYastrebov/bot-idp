@@ -23,6 +23,7 @@ func main() {
 	config := struct {
 		address       string
 		debug         string
+		secret        string
 		clientId      string
 		clientSecret  string
 		idTokenIssuer string
@@ -30,6 +31,7 @@ func main() {
 	}{
 		address:       withDefault(os.Getenv("ADDRESS"), ":4159"),
 		debug:         os.Getenv("DEBUG"),
+		secret:        os.Getenv("SECRET"),
 		clientId:      withDefault(os.Getenv("CLIENT_ID"), "bot-idp"),
 		clientSecret:  os.Getenv("CLIENT_SECRET"),
 		idTokenIssuer: withDefault(os.Getenv("ID_TOKEN_ISSUER"), "https://github.com/AlexanderYastrebov/bot-idp"),
@@ -45,8 +47,7 @@ func main() {
 		})
 	}
 
-	// public, private, _ := ed25519.GenerateKey(nil)
-	d, err := base64.RawURLEncoding.DecodeString("nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A")
+	d, err := base64.RawURLEncoding.DecodeString(config.secret)
 	if err != nil {
 		panic(err)
 	}
