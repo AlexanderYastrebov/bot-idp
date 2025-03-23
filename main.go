@@ -270,10 +270,19 @@ func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, b
 		<meta charset="utf-8">
 		<title>Welcome</title>
 		<script>%s</script>
-		<script>(async() => { await challenge({blockHex: "%s", signature: "%s", difficulty: %d, redirectUri: "%s"}); })();</script>
+		<script>
+			(async() => {
+				const log = (msg)=>{
+					const out = document.getElementById("out");
+					out.innerHTML = out.innerHTML.trimEnd() + "\n" + msg;
+				};
+				await challenge({blockHex: "%s", signature: "%s", difficulty: %d, redirectUri: "%s", log: log});
+			})();
+		</script>
 	</head>
 	<body>
-		<pre id="out">⛏️ Let's solve a challenge, shall we?</pre>
+		<pre id="out">⛏️ Let's solve a challenge, shall we?
+		</pre>
 	</body>
 </html>%s`, challengeJs, blockHex, signature, difficulty, redirectUri, "\n")
 }

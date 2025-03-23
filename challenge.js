@@ -7,7 +7,7 @@ async function challenge(params) {
     const blockLen = params.blockHex.length / 2;
     const view = new DataView(new ArrayBuffer(blockLen + 8));
     for (let i = 0; i < blockLen; i++) {
-        view.setUint8(i, params.blockHex.substring(i * 2, (i + 1) * 2));
+        view.setUint8(i, parseInt(params.blockHex.substring(i * 2, (i + 1) * 2), 16));
     }
 
     let nonce = 0n;
@@ -30,12 +30,15 @@ async function challenge(params) {
         "hashing-started",
         "hashing-finished",
     );
-    console.log(`Found ${hash} in ${hashingMeasure.duration} ms`);
+
+    const msg = `💎 Found ${hash} in ${hashingMeasure.duration} ms`
+    console.log(msg);
+    params.log && params.log(msg);
 
     const redirectUri = new URL(params.redirectUri);
-    redirectUri.searchParams.set("code", nonce + "." + hash + "." + params.signature)
+    redirectUri.searchParams.set("code", nonce + "." + hash + "." + params.signature);
 
     console.log("redirectUri", redirectUri);
 
-    document.location = redirectUri;
+    //document.location = redirectUri;
 }
