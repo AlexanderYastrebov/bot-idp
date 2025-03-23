@@ -2,16 +2,19 @@ package main
 
 import (
 	"crypto/ed25519"
-	"crypto/rand"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -79,7 +82,6 @@ func main() {
 			return
 		}
 
-		code := randUint64()
 		q := ru.Query()
 		q.Set("response_type", r.FormValue("code"))
 		q.Set("client_id", config.clientId)
@@ -88,7 +90,7 @@ func main() {
 		q.Set("state", r.FormValue("state"))
 		ru.RawQuery = q.Encode()
 
-		challenge(w, r, code, config.difficulty, ru.String())
+		challenge(w, r, signingKeyPriv, []byte{1, 2, 3, 4}, config.difficulty, ru.String())
 	})
 	http.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("Request", "method", r.Method, "url", r.URL)
@@ -124,8 +126,38 @@ func main() {
 		}
 		// TODO: validate redirect_uri
 
-		if r.Form.Get("code") != "XXX" {
+		parts := strings.SplitN(r.Form.Get("code"), ".", 3)
+		if len(parts) != 3 {
 			slog.Debug("👎 code")
+			http.Error(w, "", http.StatusBadRequest)
+			return
+		}
+		nonceDec, hash, signature := parts[0], parts[1], parts[2]
+
+		slog.Debug("code", "nonce", nonceDec, "hash", hash, "signature", signature)
+		claims := make(map[string]any)
+		if !jwtVerify(signature, signingKeyPub, &claims) {
+			slog.Debug("👎 signature")
+			http.Error(w, "", http.StatusBadRequest)
+			return
+		}
+		slog.Debug("signature", "claims", claims)
+		// trust payload due to valid signature
+		payload, _ := base64urld(claims["payload"].(string))
+		block := payload
+		nonce, err := strconv.ParseUint(nonceDec, 10, 64)
+		if err != nil {
+			slog.Debug("👎 nonce")
+			http.Error(w, "", http.StatusBadRequest)
+			return
+		}
+
+		h := sha256.New()
+		h.Write(block)
+		binary.Write(h, binary.BigEndian, nonce)
+
+		if hash != hex.EncodeToString(h.Sum(nil)) {
+			slog.Debug("👎 hash")
 			http.Error(w, "", http.StatusBadRequest)
 			return
 		}
@@ -224,22 +256,32 @@ func openidConfiguration(w http.ResponseWriter, _ *http.Request, issuer string) 
 //go:embed challenge.js
 var challengeJs string
 
-func challenge(w http.ResponseWriter, _ *http.Request, code uint64, difficulty int, redirectUri string) {
+func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, block []byte, difficulty int, redirectUri string) {
+	payload := block
+
+	blockHex := hex.EncodeToString(block)
+	signature := jwtSign(fmt.Sprintf(`{
+		"payload": "%s"
+	}`, base64url(payload)), key)
+
 	fmt.Fprintf(w, `<!doctype html>
 <html lang=en>
 	<head>
 		<meta charset="utf-8">
 		<title>Welcome</title>
 		<script>%s</script>
-		<script>(async() => { await challenge({code: %d, difficulty: %d, redirectUri: "%s"}); })();</script>
+		<script>(async() => { await challenge({blockHex: "%s", signature: "%s", difficulty: %d, redirectUri: "%s"}); })();</script>
 	</head>
 	<body>
 		<pre id="out">⛏️ Let's solve a challenge, shall we?</pre>
 	</body>
-</html>%s`, challengeJs, code, difficulty, redirectUri, "\n")
+</html>%s`, challengeJs, blockHex, signature, difficulty, redirectUri, "\n")
 }
 
-var base64url = base64.RawURLEncoding.EncodeToString
+var (
+	base64url  = base64.RawURLEncoding.EncodeToString
+	base64urld = base64.RawURLEncoding.DecodeString
+)
 
 // https://www.rfc-editor.org/rfc/rfc7519.txt
 func jwtSign(payload string, key ed25519.PrivateKey) string {
@@ -247,11 +289,18 @@ func jwtSign(payload string, key ed25519.PrivateKey) string {
 	return headerPayload + "." + base64url(ed25519.Sign(key, []byte(headerPayload)))
 }
 
-func randUint64() uint64 {
-	var num uint64
-	err := binary.Read(rand.Reader, binary.NativeEndian, &num)
-	if err != nil {
-		panic(err)
+func jwtVerify(jwt string, key ed25519.PublicKey, claims any) bool {
+	if header, payloadSignature, ok := strings.Cut(jwt, "."); ok {
+		payload, signature, ok := strings.Cut(payloadSignature, ".")
+		if ok {
+			if p, err := base64urld(payload); err == nil {
+				if s, err := base64urld(signature); err == nil {
+					if ed25519.Verify(key, []byte(header+"."+payload), s) {
+						return (json.Unmarshal(p, claims) == nil)
+					}
+				}
+			}
+		}
 	}
-	return num
+	return false
 }
