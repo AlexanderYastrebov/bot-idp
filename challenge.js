@@ -10,9 +10,9 @@ async function challenge(params) {
         view.setUint8(i, parseInt(params.blockHex.substring(i * 2, (i + 1) * 2), 16));
     }
 
+    const start = Date.now();
     let nonce = 0n;
     var hash;
-    performance.mark("hashing-started");
     do {
         view.setBigInt64(blockLen, ++nonce);
         hash = await window.crypto.subtle.digest("SHA-256", view.buffer)
@@ -23,15 +23,9 @@ async function challenge(params) {
                 return null;
             });
     } while (!hash);
-    performance.mark("hashing-finished");
 
-    const hashingMeasure = performance.measure(
-        "hashing-duration",
-        "hashing-started",
-        "hashing-finished",
-    );
-
-    const msg = `💎 Found ${hash} in ${hashingMeasure.duration} ms`
+    const duration = Date.now() - start;
+    const msg = `💎 Found ${hash} in ${duration / 1000} ms`
     console.log(msg);
     params.log && params.log(msg);
 
