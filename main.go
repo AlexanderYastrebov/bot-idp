@@ -224,9 +224,9 @@ func withDefault[T comparable](val, def T) T {
 func openidConfiguration(w http.ResponseWriter, _ *http.Request, issuer string) {
 	fmt.Fprintf(w, `{
   "issuer": "%s",
-  "authorization_endpoint": "http://localhost:9998/authorize",
-  "token_endpoint": "http://localhost:9998/token",
-  "jwks_uri": "http://localhost:9998/keys",
+  "authorization_endpoint": "%s/authorize",
+  "token_endpoint": "%s/token",
+  "jwks_uri": "%s/keys",
   "scopes_supported": [
     "openid"
   ],
@@ -251,7 +251,7 @@ func openidConfiguration(w http.ResponseWriter, _ *http.Request, issuer string) 
   ],
   "request_parameter_supported": true,
   "request_uri_parameter_supported": false
-}%s`, issuer, "\n")
+}%s`, issuer, issuer, issuer, issuer, "\n")
 }
 
 //go:embed challenge.js
