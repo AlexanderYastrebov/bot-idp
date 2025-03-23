@@ -6,20 +6,23 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"time"
 )
 
 // https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowSteps
 func main() {
 	config := struct {
-		address      string
-		debug        string
-		clientId     string
-		clientSecret string
+		address       string
+		debug         string
+		clientId      string
+		clientSecret  string
+		idTokenIssuer string
 	}{
-		address:      withDefault(os.Getenv("ADDRESS"), ":4159"),
-		debug:        os.Getenv("DEBUG"),
-		clientId:     withDefault(os.Getenv("CLIENT_ID"), "bot-idp"),
-		clientSecret: os.Getenv("CLIENT_SECRET"),
+		address:       withDefault(os.Getenv("ADDRESS"), ":4159"),
+		debug:         os.Getenv("DEBUG"),
+		clientId:      withDefault(os.Getenv("CLIENT_ID"), "bot-idp"),
+		clientSecret:  os.Getenv("CLIENT_SECRET"),
+		idTokenIssuer: withDefault(os.Getenv("ID_TOKEN_ISSUER"), "https://github.com/AlexanderYastrebov/bot-idp"),
 	}
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
@@ -115,15 +118,28 @@ func main() {
 		}
 		// TODO: validate code, redirect_uri
 
+		now := time.Now().Unix()
+		iat := now
+		exp := now + 3600
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
-		fmt.Fprintf(w, `{
-			"access_token":"SlAV32hkKG",
+		respBody := fmt.Sprintf(`{
+			"access_token": "SlAV32hkKG",
 			"token_type": "Bearer",
-			"expires_in": 3600,
-			"refresh_token":"tGzv3JOkF0XG5Qx2TlKWIA",
-			"id_token": "qqq"
-		}`+"\n")
+			"expires_in": %d,
+			"id_token": "%s"
+		}`, 3600, jwtEncode(`{
+			"typ": "JWT",
+			"alg": "EdDSA"
+		}`, fmt.Sprintf(`{
+			"iss": "%s",
+			"aud": "AUDAUD",
+			"sub": "XXX",
+			"exp": %d,
+			"iat": %d
+		}`, config.idTokenIssuer, exp, iat)))
+		slog.Debug("Response", "body", respBody)
+		fmt.Fprintln(w, respBody)
 	})
 	slog.Info("Listen", "address", config.address)
 	http.ListenAndServe(config.address, nil)
@@ -158,7 +174,7 @@ func openidConfiguration(w http.ResponseWriter, r *http.Request) {
     "public"
   ],
   "id_token_signing_alg_values_supported": [
-    "Ed25519"
+    "EdDSA"
   ],
   "token_endpoint_auth_methods_supported": [
     "client_secret_basic",
