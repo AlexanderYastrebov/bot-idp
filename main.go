@@ -2,12 +2,16 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
+	_ "embed"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -19,12 +23,14 @@ func main() {
 		clientId      string
 		clientSecret  string
 		idTokenIssuer string
+		difficulty    int
 	}{
 		address:       withDefault(os.Getenv("ADDRESS"), ":4159"),
 		debug:         os.Getenv("DEBUG"),
 		clientId:      withDefault(os.Getenv("CLIENT_ID"), "bot-idp"),
 		clientSecret:  os.Getenv("CLIENT_SECRET"),
 		idTokenIssuer: withDefault(os.Getenv("ID_TOKEN_ISSUER"), "https://github.com/AlexanderYastrebov/bot-idp"),
+		difficulty:    must(strconv.Atoi(withDefault(os.Getenv("DIFFICULTY"), "16"))),
 	}
 
 	if config.debug != "" {
@@ -73,16 +79,16 @@ func main() {
 			return
 		}
 
+		code := randUint64()
 		q := ru.Query()
 		q.Set("response_type", r.FormValue("code"))
 		q.Set("client_id", config.clientId)
 		q.Set("redirect_uri", redirectUri)
 		q.Set("scope", r.FormValue("scope"))
 		q.Set("state", r.FormValue("state"))
-		q.Set("code", "XXX")
 		ru.RawQuery = q.Encode()
 
-		http.Redirect(w, r, ru.String(), http.StatusFound)
+		challenge(w, r, code, config.difficulty, ru.String())
 	})
 	http.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("Request", "method", r.Method, "url", r.URL)
@@ -116,7 +122,13 @@ func main() {
 			http.Error(w, "", http.StatusBadRequest)
 			return
 		}
-		// TODO: validate code, redirect_uri
+		// TODO: validate redirect_uri
+
+		if r.Form.Get("code") != "XXX" {
+			slog.Debug("👎 code")
+			http.Error(w, "", http.StatusBadRequest)
+			return
+		}
 
 		now := time.Now().Unix()
 		iat := now
@@ -158,6 +170,13 @@ func main() {
 
 	slog.Info("Listen", "address", config.address)
 	http.ListenAndServe(config.address, nil)
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
 }
 
 func withDefault[T comparable](val, def T) T {
@@ -202,10 +221,37 @@ func openidConfiguration(w http.ResponseWriter, _ *http.Request, issuer string) 
 }%s`, issuer, "\n")
 }
 
+//go:embed challenge.js
+var challengeJs string
+
+func challenge(w http.ResponseWriter, _ *http.Request, code uint64, difficulty int, redirectUri string) {
+	fmt.Fprintf(w, `<!doctype html>
+<html lang=en>
+	<head>
+		<meta charset="utf-8">
+		<title>Welcome</title>
+		<script>%s</script>
+		<script>(async() => { await challenge({code: %d, difficulty: %d, redirectUri: "%s"}); })();</script>
+	</head>
+	<body>
+		<pre id="out">⛏️ Let's solve a challenge, shall we?</pre>
+	</body>
+</html>%s`, challengeJs, code, difficulty, redirectUri, "\n")
+}
+
 var base64url = base64.RawURLEncoding.EncodeToString
 
 // https://www.rfc-editor.org/rfc/rfc7519.txt
 func jwtSign(payload string, key ed25519.PrivateKey) string {
 	headerPayload := base64url([]byte(`{"typ":"JWT","alg":"EdDSA"}`)) + "." + base64url([]byte(payload))
 	return headerPayload + "." + base64url(ed25519.Sign(key, []byte(headerPayload)))
+}
+
+func randUint64() uint64 {
+	var num uint64
+	err := binary.Read(rand.Reader, binary.NativeEndian, &num)
+	if err != nil {
+		panic(err)
+	}
+	return num
 }
