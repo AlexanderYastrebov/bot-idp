@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/ed25519"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -25,10 +27,6 @@ func main() {
 		idTokenIssuer: withDefault(os.Getenv("ID_TOKEN_ISSUER"), "https://github.com/AlexanderYastrebov/bot-idp"),
 	}
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "I'm OK\n")
-	})
-
 	if config.debug != "" {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
 
@@ -38,15 +36,24 @@ func main() {
 		})
 	}
 
-	http.HandleFunc("/.well-known/openid-configuration", openidConfiguration)
+	// public, private, _ := ed25519.GenerateKey(nil)
+	d, err := base64.RawURLEncoding.DecodeString("nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A")
+	if err != nil {
+		panic(err)
+	}
+	signingKeyPriv := ed25519.NewKeyFromSeed(d)
+	signingKeyPub := signingKeyPriv.Public().(ed25519.PublicKey)
+
+	slog.Debug("Keys", "signingKeyPub", base64url(signingKeyPub))
+
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "I'm OK\n")
+	})
+	http.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		openidConfiguration(w, r, config.idTokenIssuer)
+	})
 	http.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("Request", "method", r.Method, "url", r.URL)
-		// https://server.example.com/authorize?
-		// response_type=code
-		// &client_id=s6BhdRkqt3
-		// &redirect_uri=https%3A%2F%2Fclient.example.org%2Fcb
-		// &scope=openid%20profile
-		// &state=af0ifjsldkj
 		r.ParseForm()
 		if r.Form.Get("response_type") != "code" {
 			slog.Debug("👎 response_type")
@@ -79,13 +86,6 @@ func main() {
 	})
 	http.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("Request", "method", r.Method, "url", r.URL)
-		// POST /token HTTP/1.1
-		// Host: server.example.com
-		// Authorization: Basic czZCaGRSa3F0MzpnWDFmQmF0M2JW
-		// Content-Type: application/x-www-form-urlencoded
-
-		// grant_type=authorization_code&code=SplxlOBeZQQYbYS6WxSbIA
-		//   &redirect_uri=https%3A%2F%2Fclient%2Eexample%2Ecom%2Fcb
 		r.ParseForm()
 		slog.Debug("Request", "form", r.Form)
 		if r.Form.Get("grant_type") != "authorization_code" {
@@ -128,19 +128,34 @@ func main() {
 			"token_type": "Bearer",
 			"expires_in": %d,
 			"id_token": "%s"
-		}`, 3600, jwtEncode(`{
-			"typ": "JWT",
-			"alg": "EdDSA"
-		}`, fmt.Sprintf(`{
+		}`, 3600, jwtSign(fmt.Sprintf(`{
 			"iss": "%s",
-			"aud": "AUDAUD",
-			"sub": "XXX",
+			"aud": "%s",
+			"sub": "sss",
 			"exp": %d,
-			"iat": %d
-		}`, config.idTokenIssuer, exp, iat)))
+			"iat": %d,
+			"email": "janedoe@example.org"
+		}`, config.idTokenIssuer,
+			config.clientId,
+			exp, iat),
+			signingKeyPriv))
 		slog.Debug("Response", "body", respBody)
 		fmt.Fprintln(w, respBody)
 	})
+	http.HandleFunc("GET /keys", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		respBody := fmt.Sprintf(`{
+			"keys": [
+				{
+					"kty":"OKP",
+					"crv":"Ed25519",
+					"x":"%s"
+				}
+		]}%s`, base64url(signingKeyPub), "\n")
+		slog.Debug("Response", "body", respBody)
+		fmt.Fprintln(w, respBody)
+	})
+
 	slog.Info("Listen", "address", config.address)
 	http.ListenAndServe(config.address, nil)
 }
@@ -154,10 +169,9 @@ func withDefault[T comparable](val, def T) T {
 }
 
 // https://openid.net/specs/openid-connect-discovery-1_0.html
-func openidConfiguration(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, `
-{
-  "issuer": "http://localhost:9998/",
+func openidConfiguration(w http.ResponseWriter, _ *http.Request, issuer string) {
+	fmt.Fprintf(w, `{
+  "issuer": "%s",
   "authorization_endpoint": "http://localhost:9998/authorize",
   "token_endpoint": "http://localhost:9998/token",
   "jwks_uri": "http://localhost:9998/keys",
@@ -185,5 +199,13 @@ func openidConfiguration(w http.ResponseWriter, r *http.Request) {
   ],
   "request_parameter_supported": true,
   "request_uri_parameter_supported": false
-}`+"\n")
+}%s`, issuer, "\n")
+}
+
+var base64url = base64.RawURLEncoding.EncodeToString
+
+// https://www.rfc-editor.org/rfc/rfc7519.txt
+func jwtSign(payload string, key ed25519.PrivateKey) string {
+	headerPayload := base64url([]byte(`{"typ":"JWT","alg":"EdDSA"}`)) + "." + base64url([]byte(payload))
+	return headerPayload + "." + base64url(ed25519.Sign(key, []byte(headerPayload)))
 }
