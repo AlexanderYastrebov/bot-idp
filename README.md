@@ -1,6 +1,22 @@
 # bot-idp
 
-`bot-idp` is an OpenID Connect Provider that asks visitor to solve a challenge.
+`bot-idp` is an OpenID Connect Provider that authorizes user browser
+via [proof-of-work](https://en.wikipedia.org/wiki/Proof_of_work).
+It is intended to slow down (AI) bots and scrapers.
+
+# How it works
+
+`bot-idp` works with any reverse proxy that supports [OpenID Connect](https://openid.net/developers/how-connect-works/) protocol:
+
+1. End user **navigates to a website or web application** via a browser.
+2. End user **clicks sign-in** and types their username and password.
+3. The RP (Client) **sends a request** to the OpenID Provider (OP).
+4. The OP **authenticates the User** and obtains authorization.👈
+5. The OP **responds with an Identity Token** and usually an Access Token.
+6. The RP can **send a request** with the Access Token to the User device.
+7. The UserInfo Endpoint **returns Claims** about the End-User.
+
+At step 4. `bot-idp` runs a piece of code in the browser to obtain proof-of-work and use it to issue an Identity Token.
 
 # Examples
 
