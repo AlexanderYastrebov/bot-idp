@@ -34,5 +34,7 @@ async function challenge(params) {
 
     console.log("redirectUri", redirectUri);
 
-    //document.location = redirectUri;
+    setTimeout(() => {
+        document.location = redirectUri;
+    }, "1000");
 }
