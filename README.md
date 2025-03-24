@@ -24,10 +24,12 @@ It is intended to slow down (AI) bots and scrapers.
 Run from source repository:
 
 ```console
-$ DEBUG=1 DIFFICULTY=16 ADDRESS=:4159 SECRET=nWGxne_9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A CLIENT_ID=bot-idp CLIENT_SECRET=secret1 ISSUER=http://localhost:4159 go run .
+$ DEBUG=1 DIFFICULTY=16 ADDRESS=:4159 SECRET=$(head -c 32 /dev/urandom | base64 | tr '/+' '_-' | tr -d '=') CLIENT_ID=bot-idp CLIENT_SECRET=secret1 ISSUER=http://localhost:4159 go run .
 2025/03/23 21:21:08 DEBUG Keys signingKeyPub=11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo
 2025/03/23 21:21:08 INFO Listen address=:4159
 ```
+
+Increase `DIFFICULTY` to harden the challenge.
 
 ## With oauth2-proxy
 

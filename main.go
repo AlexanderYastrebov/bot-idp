@@ -48,7 +48,7 @@ func main() {
 		})
 	}
 
-	d, err := base64.RawURLEncoding.DecodeString(config.secret)
+	d, err := base64urld(config.secret)
 	if err != nil {
 		panic(err)
 	}
