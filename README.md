@@ -33,9 +33,9 @@ $ DEBUG=1 DIFFICULTY=16 ADDRESS=:4159 SECRET="$SECRET" CLIENT_ID=bot-idp CLIENT_
 or via Docker:
 
 ```console
-$ docker pull ghcr.io/alexanderyastrebov/idp-bot:latest
+$ docker pull ghcr.io/alexanderyastrebov/bot-idp:latest
 $ SECRET=$(head -c 32 /dev/urandom | base64)
-$ docker run -p 4159:4159 -e DEBUG=1 -e DIFFICULTY=16 -e ADDRESS=:4159 -e SECRET="$SECRET" -e CLIENT_ID=bot-idp -e CLIENT_SECRET=secret1 -e ISSUER=http://localhost:4159 ghcr.io/alexanderyastrebov/idp-bot
+$ docker run -p 4159:4159 -e DEBUG=1 -e DIFFICULTY=16 -e ADDRESS=:4159 -e SECRET="$SECRET" -e CLIENT_ID=bot-idp -e CLIENT_SECRET=secret1 -e ISSUER=http://localhost:4159 ghcr.io/alexanderyastrebov/bot-idp
 ```
 
 Increase `DIFFICULTY` to harden the challenge.
