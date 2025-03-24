@@ -19,23 +19,28 @@ import (
 	"time"
 )
 
+type config struct {
+	address      string
+	debug        string
+	secret       string
+	clientId     string
+	clientSecret string
+	issuer       string
+	difficulty   int
+
+	signingKeyPriv ed25519.PrivateKey
+	signingKeyPub  ed25519.PublicKey
+}
+
 // https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowSteps
 func main() {
-	config := struct {
-		address      string
-		debug        string
-		secret       string
-		clientId     string
-		clientSecret string
-		Issuer       string
-		difficulty   int
-	}{
+	config := &config{
 		address:      withDefault(os.Getenv("ADDRESS"), ":4159"),
 		debug:        os.Getenv("DEBUG"),
 		secret:       os.Getenv("SECRET"),
 		clientId:     withDefault(os.Getenv("CLIENT_ID"), "bot-idp"),
 		clientSecret: os.Getenv("CLIENT_SECRET"),
-		Issuer:       withDefault(os.Getenv("ISSUER"), "https://github.com/AlexanderYastrebov/bot-idp"),
+		issuer:       withDefault(os.Getenv("ISSUER"), "https://github.com/AlexanderYastrebov/bot-idp"),
 		difficulty:   must(strconv.Atoi(withDefault(os.Getenv("DIFFICULTY"), "16"))),
 	}
 
@@ -48,180 +53,23 @@ func main() {
 		})
 	}
 
-	d, err := base64urld(config.secret)
-	if err != nil {
-		panic(err)
-	}
-	signingKeyPriv := ed25519.NewKeyFromSeed(d)
-	signingKeyPub := signingKeyPriv.Public().(ed25519.PublicKey)
+	config.signingKeyPriv = ed25519.NewKeyFromSeed(must(base64urld(config.secret)))
+	config.signingKeyPub = config.signingKeyPriv.Public().(ed25519.PublicKey)
 
-	slog.Debug("Keys", "signingKeyPub", base64url(signingKeyPub))
+	slog.Debug("Keys", "config.signingKeyPub", base64url(config.signingKeyPub))
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "I'm OK\n")
-	})
-	http.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
-		openidConfiguration(w, r, config.Issuer)
-	})
-	http.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
-		slog.Debug("Request", "method", r.Method, "url", r.URL)
-		r.ParseForm()
-		if r.Form.Get("response_type") != "code" {
-			slog.Debug("👎 response_type")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-		if r.Form.Get("client_id") != config.clientId {
-			slog.Debug("👎 client_id")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-		redirectUri := r.Form.Get("redirect_uri")
-		ru, err := url.Parse(redirectUri)
-		if err != nil {
-			slog.Debug("👎 redirect_uri")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-
-		q := ru.Query()
-		q.Set("response_type", r.FormValue("code"))
-		q.Set("client_id", config.clientId)
-		q.Set("redirect_uri", redirectUri)
-		q.Set("scope", r.FormValue("scope"))
-		q.Set("state", r.FormValue("state"))
-		ru.RawQuery = q.Encode()
-
-		challenge(w, r, signingKeyPriv, config.difficulty, ru.String())
-	})
-	http.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
-		slog.Debug("Request", "method", r.Method, "url", r.URL)
-		r.ParseForm()
-		slog.Debug("Request", "form", r.Form)
-		if r.Form.Get("grant_type") != "authorization_code" {
-			slog.Debug("👎 grant_type")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-
-		clientId, clientSecret, ok := r.BasicAuth()
-		slog.Debug("Request", "clientId", clientId, "clientSecret", clientSecret, "config.clientId", config.clientId)
-		if clientId == "" {
-			clientId, clientSecret, ok = r.FormValue("client_id"), r.FormValue("client_secret"), true
-			slog.Debug("Request", "clientId", clientId, "clientSecret", clientSecret, "config.clientId", config.clientId)
-		}
-
-		if !ok {
-			slog.Debug("👎 Authorization")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-		if clientId != config.clientId {
-			slog.Debug("👎 clientId")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-		if clientSecret != config.clientSecret {
-			slog.Debug("👎 clientSecret")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-		// TODO: validate redirect_uri
-
-		parts := strings.SplitN(r.Form.Get("code"), ".", 3)
-		if len(parts) != 3 {
-			slog.Debug("👎 code")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-		nonceDec, hash, signature := parts[0], parts[1], parts[2]
-
-		slog.Debug("code", "nonce", nonceDec, "hash", hash, "signature", signature)
-		claims := make(map[string]any)
-		if !jwtVerify(signature, signingKeyPub, &claims) {
-			slog.Debug("👎 signature")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-		slog.Debug("signature", "claims", claims)
-		// trust payload due to valid signature
-		block, _ := base64urld(claims["block"].(string))
-		nonce, err := strconv.ParseUint(nonceDec, 10, 64)
-		if err != nil {
-			slog.Debug("👎 nonce")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-
-		h := sha256.New()
-		h.Write(block)
-		binary.Write(h, binary.BigEndian, nonce)
-
-		if hash != hex.EncodeToString(h.Sum(nil)) {
-			slog.Debug("👎 hash")
-			http.Error(w, "", http.StatusBadRequest)
-			return
-		}
-
-		now := time.Now().Unix()
-		iat := now
-		exp := now + 3600
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Cache-Control", "no-store")
-		respBody := fmt.Sprintf(`{
-			"access_token": "SlAV32hkKG",
-			"token_type": "Bearer",
-			"expires_in": %d,
-			"id_token": "%s"
-		}`, 3600, jwtSign(fmt.Sprintf(`{
-			"iss": "%s",
-			"aud": "%s",
-			"sub": "sss",
-			"exp": %d,
-			"iat": %d,
-			"email": "janedoe@example.org"
-		}`, config.Issuer,
-			config.clientId,
-			exp, iat),
-			signingKeyPriv))
-		slog.Debug("Response", "body", respBody)
-		fmt.Fprintln(w, respBody)
-	})
-	http.HandleFunc("GET /keys", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		respBody := fmt.Sprintf(`{
-			"keys": [
-				{
-					"kty":"OKP",
-					"crv":"Ed25519",
-					"x":"%s"
-				}
-		]}%s`, base64url(signingKeyPub), "\n")
-		slog.Debug("Response", "body", respBody)
-		fmt.Fprintln(w, respBody)
-	})
+	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "I'm OK") })
+	http.HandleFunc("/.well-known/openid-configuration", config.openidConfigurationHandler)
+	http.HandleFunc("/authorize", config.authorizeHandler)
+	http.HandleFunc("POST /token", config.tokenHandler)
+	http.HandleFunc("GET /keys", config.keysHandler)
 
 	slog.Info("Listen", "address", config.address)
 	http.ListenAndServe(config.address, nil)
 }
 
-func must[T any](v T, err error) T {
-	if err != nil {
-		panic(err)
-	}
-	return v
-}
-
-func withDefault[T comparable](val, def T) T {
-	var zero T
-	if val == zero {
-		return def
-	}
-	return val
-}
-
 // https://openid.net/specs/openid-connect-discovery-1_0.html
-func openidConfiguration(w http.ResponseWriter, _ *http.Request, issuer string) {
+func (config *config) openidConfigurationHandler(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(w, `{
   "issuer": "%s",
   "authorization_endpoint": "%s/authorize",
@@ -251,7 +99,39 @@ func openidConfiguration(w http.ResponseWriter, _ *http.Request, issuer string) 
   ],
   "request_parameter_supported": true,
   "request_uri_parameter_supported": false
-}%s`, issuer, issuer, issuer, issuer, "\n")
+}%s`, config.issuer, config.issuer, config.issuer, config.issuer, "\n")
+}
+
+func (config *config) authorizeHandler(w http.ResponseWriter, r *http.Request) {
+	slog.Debug("Request", "method", r.Method, "url", r.URL)
+	r.ParseForm()
+	if r.Form.Get("response_type") != "code" {
+		slog.Debug("👎 response_type")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+	if r.Form.Get("client_id") != config.clientId {
+		slog.Debug("👎 client_id")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+	redirectUri := r.Form.Get("redirect_uri")
+	ru, err := url.Parse(redirectUri)
+	if err != nil {
+		slog.Debug("👎 redirect_uri")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+
+	q := ru.Query()
+	q.Set("response_type", r.FormValue("code"))
+	q.Set("client_id", config.clientId)
+	q.Set("redirect_uri", redirectUri)
+	q.Set("scope", r.FormValue("scope"))
+	q.Set("state", r.FormValue("state"))
+	ru.RawQuery = q.Encode()
+
+	challenge(w, r, config.signingKeyPriv, config.difficulty, ru.String())
 }
 
 //go:embed challenge.js
@@ -289,10 +169,113 @@ func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, d
 </html>%s`, challengeJs, blockHex, signature, difficulty, redirectUri, "\n")
 }
 
-var (
-	base64url  = base64.RawURLEncoding.EncodeToString
-	base64urld = base64.RawURLEncoding.DecodeString
-)
+func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
+	slog.Debug("Request", "method", r.Method, "url", r.URL)
+	r.ParseForm()
+	slog.Debug("Request", "form", r.Form)
+	if r.Form.Get("grant_type") != "authorization_code" {
+		slog.Debug("👎 grant_type")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+
+	clientId, clientSecret, ok := r.BasicAuth()
+	slog.Debug("Request", "clientId", clientId, "clientSecret", clientSecret, "config.clientId", config.clientId)
+	if clientId == "" {
+		clientId, clientSecret, ok = r.FormValue("client_id"), r.FormValue("client_secret"), true
+		slog.Debug("Request", "clientId", clientId, "clientSecret", clientSecret, "config.clientId", config.clientId)
+	}
+
+	if !ok {
+		slog.Debug("👎 Authorization")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+	if clientId != config.clientId {
+		slog.Debug("👎 clientId")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+	if clientSecret != config.clientSecret {
+		slog.Debug("👎 clientSecret")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+	// TODO: validate redirect_uri
+
+	parts := strings.SplitN(r.Form.Get("code"), ".", 3)
+	if len(parts) != 3 {
+		slog.Debug("👎 code")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+	nonceDec, hash, signature := parts[0], parts[1], parts[2]
+
+	slog.Debug("code", "nonce", nonceDec, "hash", hash, "signature", signature)
+	claims := make(map[string]any)
+	if !jwtVerify(signature, config.signingKeyPub, &claims) {
+		slog.Debug("👎 signature")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+	slog.Debug("signature", "claims", claims)
+	// trust payload due to valid signature
+	block, _ := base64urld(claims["block"].(string))
+	nonce, err := strconv.ParseUint(nonceDec, 10, 64)
+	if err != nil {
+		slog.Debug("👎 nonce")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+
+	h := sha256.New()
+	h.Write(block)
+	binary.Write(h, binary.BigEndian, nonce)
+
+	if hash != hex.EncodeToString(h.Sum(nil)) {
+		slog.Debug("👎 hash")
+		http.Error(w, "", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now().Unix()
+	iat := now
+	exp := now + 3600
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	respBody := fmt.Sprintf(`{
+		"access_token": "SlAV32hkKG",
+		"token_type": "Bearer",
+		"expires_in": %d,
+		"id_token": "%s"
+	}`, 3600, jwtSign(fmt.Sprintf(`{
+		"iss": "%s",
+		"aud": "%s",
+		"sub": "sss",
+		"exp": %d,
+		"iat": %d,
+		"email": "janedoe@example.org"
+	}`, config.issuer,
+		config.clientId,
+		exp, iat),
+		config.signingKeyPriv))
+	slog.Debug("Response", "body", respBody)
+	fmt.Fprintln(w, respBody)
+}
+
+func (config *config) keysHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	respBody := fmt.Sprintf(`{
+			"keys": [
+				{
+					"kty":"OKP",
+					"crv":"Ed25519",
+					"x":"%s"
+				}
+		]}%s`, base64url(config.signingKeyPub), "\n")
+	slog.Debug("Response", "body", respBody)
+	fmt.Fprintln(w, respBody)
+}
 
 // https://www.rfc-editor.org/rfc/rfc7519.txt
 func jwtSign(payload string, key ed25519.PrivateKey) string {
@@ -314,4 +297,24 @@ func jwtVerify(jwt string, key ed25519.PublicKey, claims any) bool {
 		}
 	}
 	return false
+}
+
+var (
+	base64url  = base64.RawURLEncoding.EncodeToString
+	base64urld = base64.RawURLEncoding.DecodeString
+)
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}
+
+func withDefault[T comparable](val, def T) T {
+	var zero T
+	if val == zero {
+		return def
+	}
+	return val
 }
