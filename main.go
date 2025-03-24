@@ -22,21 +22,21 @@ import (
 // https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowSteps
 func main() {
 	config := struct {
-		address       string
-		debug         string
-		secret        string
-		clientId      string
-		clientSecret  string
-		idTokenIssuer string
-		difficulty    int
+		address      string
+		debug        string
+		secret       string
+		clientId     string
+		clientSecret string
+		Issuer       string
+		difficulty   int
 	}{
-		address:       withDefault(os.Getenv("ADDRESS"), ":4159"),
-		debug:         os.Getenv("DEBUG"),
-		secret:        os.Getenv("SECRET"),
-		clientId:      withDefault(os.Getenv("CLIENT_ID"), "bot-idp"),
-		clientSecret:  os.Getenv("CLIENT_SECRET"),
-		idTokenIssuer: withDefault(os.Getenv("ID_TOKEN_ISSUER"), "https://github.com/AlexanderYastrebov/bot-idp"),
-		difficulty:    must(strconv.Atoi(withDefault(os.Getenv("DIFFICULTY"), "16"))),
+		address:      withDefault(os.Getenv("ADDRESS"), ":4159"),
+		debug:        os.Getenv("DEBUG"),
+		secret:       os.Getenv("SECRET"),
+		clientId:     withDefault(os.Getenv("CLIENT_ID"), "bot-idp"),
+		clientSecret: os.Getenv("CLIENT_SECRET"),
+		Issuer:       withDefault(os.Getenv("ISSUER"), "https://github.com/AlexanderYastrebov/bot-idp"),
+		difficulty:   must(strconv.Atoi(withDefault(os.Getenv("DIFFICULTY"), "16"))),
 	}
 
 	if config.debug != "" {
@@ -61,7 +61,7 @@ func main() {
 		fmt.Fprintf(w, "I'm OK\n")
 	})
 	http.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
-		openidConfiguration(w, r, config.idTokenIssuer)
+		openidConfiguration(w, r, config.Issuer)
 	})
 	http.HandleFunc("/authorize", func(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("Request", "method", r.Method, "url", r.URL)
@@ -180,7 +180,7 @@ func main() {
 			"exp": %d,
 			"iat": %d,
 			"email": "janedoe@example.org"
-		}`, config.idTokenIssuer,
+		}`, config.Issuer,
 			config.clientId,
 			exp, iat),
 			signingKeyPriv))
