@@ -103,23 +103,28 @@ func (config *config) openidConfigurationHandler(w http.ResponseWriter, _ *http.
 }
 
 func (config *config) authorizeHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Debug("Request", "method", r.Method, "url", r.URL)
+	badRequest := func(msg string) {
+		slog.Debug(msg)
+		http.Error(w, msg, http.StatusBadRequest)
+	}
+
 	r.ParseForm()
+	slog.Debug("Request", "endpoint", "authorize", "method", r.Method, "url", r.URL, "form", r.Form)
+
 	if r.Form.Get("response_type") != "code" {
-		slog.Debug("👎 response_type")
-		http.Error(w, "", http.StatusBadRequest)
+		badRequest("👎 response_type")
 		return
 	}
+
 	if r.Form.Get("client_id") != config.clientId {
-		slog.Debug("👎 client_id")
-		http.Error(w, "", http.StatusBadRequest)
+		badRequest("👎 client_id")
 		return
 	}
+
 	redirectUri := r.Form.Get("redirect_uri")
 	ru, err := url.Parse(redirectUri)
 	if err != nil {
-		slog.Debug("👎 redirect_uri")
-		http.Error(w, "", http.StatusBadRequest)
+		badRequest("👎 redirect_uri")
 		return
 	}
 
@@ -170,61 +175,55 @@ func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, d
 }
 
 func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
-	slog.Debug("Request", "method", r.Method, "url", r.URL)
+	unauthorized := func(msg string) {
+		slog.Debug(msg)
+		http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	}
 	r.ParseForm()
 	slog.Debug("Request", "form", r.Form)
+
 	if r.Form.Get("grant_type") != "authorization_code" {
-		slog.Debug("👎 grant_type")
-		http.Error(w, "", http.StatusBadRequest)
+		unauthorized("👎 grant_type")
 		return
 	}
 
 	clientId, clientSecret, ok := r.BasicAuth()
-	slog.Debug("Request", "clientId", clientId, "clientSecret", clientSecret, "config.clientId", config.clientId)
-	if clientId == "" {
-		clientId, clientSecret, ok = r.FormValue("client_id"), r.FormValue("client_secret"), true
-		slog.Debug("Request", "clientId", clientId, "clientSecret", clientSecret, "config.clientId", config.clientId)
-	}
-
 	if !ok {
-		slog.Debug("👎 Authorization")
-		http.Error(w, "", http.StatusBadRequest)
-		return
+		clientId, clientSecret = r.FormValue("client_id"), r.FormValue("client_secret")
 	}
+	slog.Debug("Request", "clientId", clientId, "clientSecret", clientSecret)
+
 	if clientId != config.clientId {
-		slog.Debug("👎 clientId")
-		http.Error(w, "", http.StatusBadRequest)
+		unauthorized("👎 clientId")
 		return
 	}
 	if clientSecret != config.clientSecret {
-		slog.Debug("👎 clientSecret")
-		http.Error(w, "", http.StatusBadRequest)
+		unauthorized("👎 clientSecret")
 		return
 	}
 	// TODO: validate redirect_uri
 
 	parts := strings.SplitN(r.Form.Get("code"), ".", 3)
 	if len(parts) != 3 {
-		slog.Debug("👎 code")
-		http.Error(w, "", http.StatusBadRequest)
+		unauthorized("👎 code")
 		return
 	}
 	nonceDec, hash, signature := parts[0], parts[1], parts[2]
 
 	slog.Debug("code", "nonce", nonceDec, "hash", hash, "signature", signature)
+
 	claims := make(map[string]any)
 	if !jwtVerify(signature, config.signingKeyPub, &claims) {
-		slog.Debug("👎 signature")
-		http.Error(w, "", http.StatusBadRequest)
+		unauthorized("👎 signature")
 		return
 	}
 	slog.Debug("signature", "claims", claims)
+
 	// trust payload due to valid signature
 	block, _ := base64urld(claims["block"].(string))
 	nonce, err := strconv.ParseUint(nonceDec, 10, 64)
 	if err != nil {
-		slog.Debug("👎 nonce")
-		http.Error(w, "", http.StatusBadRequest)
+		unauthorized("👎 nonce")
 		return
 	}
 
@@ -233,8 +232,7 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 	binary.Write(h, binary.BigEndian, nonce)
 
 	if hash != hex.EncodeToString(h.Sum(nil)) {
-		slog.Debug("👎 hash")
-		http.Error(w, "", http.StatusBadRequest)
+		unauthorized("👎 hash")
 		return
 	}
 
