@@ -53,7 +53,7 @@ func main() {
 		})
 	}
 
-	config.signingKeyPriv = ed25519.NewKeyFromSeed(must(base64urld(config.secret)))
+	config.signingKeyPriv = ed25519.NewKeyFromSeed(must(base64DecodeString(config.secret)))
 	config.signingKeyPub = config.signingKeyPriv.Public().(ed25519.PublicKey)
 
 	slog.Debug("Keys", "config.signingKeyPub", base64url(config.signingKeyPub))
@@ -314,6 +314,19 @@ var (
 	base64url  = base64.RawURLEncoding.EncodeToString
 	base64urld = base64.RawURLEncoding.DecodeString
 )
+
+// base64DecodeString detects base64 variant and decodes s.
+// See [base64.RawURLEncoding]
+func base64DecodeString(s string) ([]byte, error) {
+	enc := base64.URLEncoding
+	if strings.ContainsAny(s, "+/") {
+		enc = base64.StdEncoding
+	}
+	if !strings.ContainsAny(s, "=") {
+		enc = enc.WithPadding(base64.NoPadding)
+	}
+	return enc.DecodeString(s)
+}
 
 func must[T any](v T, err error) T {
 	if err != nil {
