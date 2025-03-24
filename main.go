@@ -174,8 +174,7 @@ func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, d
 		</script>
 	</head>
 	<body>
-		<pre id="out">⛏️ Let's solve a challenge, shall we?
-		</pre>
+		<pre id="out">⛏️ Let's solve a challenge, shall we?</pre>
 	</body>
 </html>%s`, challengeJs, blockHex, signature, difficulty, redirectUri, "\n")
 }
