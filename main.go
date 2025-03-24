@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/ed25519"
+	"crypto/rand"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/base64"
@@ -91,7 +92,7 @@ func main() {
 		q.Set("state", r.FormValue("state"))
 		ru.RawQuery = q.Encode()
 
-		challenge(w, r, signingKeyPriv, []byte{1, 2, 3, 4}, config.difficulty, ru.String())
+		challenge(w, r, signingKeyPriv, config.difficulty, ru.String())
 	})
 	http.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		slog.Debug("Request", "method", r.Method, "url", r.URL)
@@ -144,8 +145,7 @@ func main() {
 		}
 		slog.Debug("signature", "claims", claims)
 		// trust payload due to valid signature
-		payload, _ := base64urld(claims["payload"].(string))
-		block := payload
+		block, _ := base64urld(claims["block"].(string))
 		nonce, err := strconv.ParseUint(nonceDec, 10, 64)
 		if err != nil {
 			slog.Debug("👎 nonce")
@@ -257,13 +257,14 @@ func openidConfiguration(w http.ResponseWriter, _ *http.Request, issuer string) 
 //go:embed challenge.js
 var challengeJs string
 
-func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, block []byte, difficulty int, redirectUri string) {
-	payload := block
+func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, difficulty int, redirectUri string) {
+	block := make([]byte, 32)
+	rand.Read(block)
 
 	blockHex := hex.EncodeToString(block)
 	signature := jwtSign(fmt.Sprintf(`{
-		"payload": "%s"
-	}`, base64url(payload)), key)
+		"block": "%s"
+	}`, base64url(block)), key)
 
 	fmt.Fprintf(w, `<!doctype html>
 <html lang=en>
