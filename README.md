@@ -1,6 +1,6 @@
 # ⛏️ bot-idp
 
-`bot-idp` is an [OpenID Connect](https://openid.net/developers/how-connect-works/) Provider that authorizes user browser
+`bot-idp` is an [OpenID Connect](https://openid.net/developers/how-connect-works/) Provider that authenticates user browser
 via [proof-of-work](https://en.wikipedia.org/wiki/Proof_of_work).
 It is intended to slow down (AI) bots and scrapers.
 
@@ -9,8 +9,8 @@ It is intended to slow down (AI) bots and scrapers.
 `bot-idp` works with any `reverse-proxy` that supports OpenID Connect protocol:
 
 1. End user **navigates to a website or web application** via a browser.
-2. `reverse-proxy` checks authentication **cookie** and proxies to the backend if it is valid.
-3. If no valid cookie then `reverse-proxy` **redirects user** to the `bot-idp`.
+2. `reverse-proxy` checks session **cookie** and proxies to the backend if it is valid.
+3. Otherwise `reverse-proxy` **redirects user** to the `bot-idp`.
 4. `bot-idp` **authenticates the User** by running a piece of code in their browser
    to obtain proof-of-work and use it to issue an **Identity Token**.
 5. `bot-idp` **responds with an Identity Token** and an Access Token.
