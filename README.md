@@ -6,17 +6,16 @@ It is intended to slow down (AI) bots and scrapers.
 
 # How it works
 
-`bot-idp` works with any reverse proxy that supports [OpenID Connect](https://openid.net/developers/how-connect-works/) protocol:
+`bot-idp` works with any `reverse-proxy` that supports [OpenID Connect](https://openid.net/developers/how-connect-works/) protocol:
 
 1. End user **navigates to a website or web application** via a browser.
-2. End user **clicks sign-in** and types their username and password.
-3. The RP (Client) **sends a request** to the OpenID Provider (OP).
-4. The OP **authenticates the User** and obtains authorization.👈
-5. The OP **responds with an Identity Token** and usually an Access Token.
-6. The RP can **send a request** with the Access Token to the User device.
-7. The UserInfo Endpoint **returns Claims** about the End-User.
-
-At step 4. `bot-idp` runs a piece of code in the browser to obtain proof-of-work and use it to issue an Identity Token.
+2. `reverse-proxy` checks authentication **cookie** and proxies to the backend if it is valid.
+3. If no valid cookie then `reverse-proxy` **redirects user** to the `bot-idp`.
+4. `bot-idp` **authenticates the User** by running a piece of code in their browser
+   to obtain proof-of-work and use it to issue an **Identity Token**.
+5. `bot-idp` **responds with an Identity Token** and an Access Token.
+6. The `reverse-proxy` can **send a request** with the Access Token to the User device (not implemeneted).
+7. The UserInfo Endpoint **returns Claims** about the End-User (not implemeneted).
 
 # Examples
 
