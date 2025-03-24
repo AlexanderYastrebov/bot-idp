@@ -24,9 +24,17 @@ It is intended to slow down (AI) bots and scrapers.
 Run from source repository:
 
 ```console
-$ DEBUG=1 DIFFICULTY=16 ADDRESS=:4159 SECRET=$(head -c 32 /dev/urandom | base64 | tr '/+' '_-' | tr -d '=') CLIENT_ID=bot-idp CLIENT_SECRET=secret1 ISSUER=http://localhost:4159 go run .
+$ SECRET=$(head -c 32 /dev/urandom | base64 | tr '/+' '_-' | tr -d '=')
+$ DEBUG=1 DIFFICULTY=16 ADDRESS=:4159 SECRET="$SECRET" CLIENT_ID=bot-idp CLIENT_SECRET=secret1 ISSUER=http://localhost:4159 go run .
 2025/03/23 21:21:08 DEBUG Keys signingKeyPub=11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo
 2025/03/23 21:21:08 INFO Listen address=:4159
+```
+
+or via Docker:
+```console
+$ SECRET=$(head -c 32 /dev/urandom | base64 | tr '/+' '_-' | tr -d '=')
+$ docker pull ghcr.io/alexanderyastrebov/idp-bot:latest
+$ docker run -p 4159:4159 -e DEBUG=1 -e DIFFICULTY=16 -e ADDRESS=:4159 -e SECRET="$SECRET" -e CLIENT_ID=bot-idp -e CLIENT_SECRET=secret1 -e ISSUER=http://localhost:4159 ghcr.io/alexanderyastrebov/idp-bot
 ```
 
 Increase `DIFFICULTY` to harden the challenge.
