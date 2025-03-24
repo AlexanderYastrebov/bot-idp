@@ -146,10 +146,16 @@ func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, d
 	block := make([]byte, 32)
 	rand.Read(block)
 
+	// challenge is short-lived
+	expiresIn := int64(10)
+	iat := time.Now().Unix()
+	exp := iat + expiresIn
+
 	blockHex := hex.EncodeToString(block)
 	signature := jwtSign(fmt.Sprintf(`{
+		"exp": %d,
 		"block": "%s"
-	}`, base64url(block)), key)
+	}`, exp, base64url(block)), key)
 
 	fmt.Fprintf(w, `<!doctype html>
 <html lang=en>
@@ -213,7 +219,7 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 	slog.Debug("code", "nonce", nonceDec, "hash", hash, "signature", signature)
 
 	claims := make(map[string]any)
-	if !jwtVerify(signature, config.signingKeyPub, &claims) {
+	if !jwtVerify(signature, config.signingKeyPub, claims) {
 		unauthorized("👎 signature")
 		return
 	}
@@ -236,9 +242,10 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	now := time.Now().Unix()
-	iat := now
-	exp := now + 3600
+	expiresIn := int64(10)
+	iat := time.Now().Unix()
+	exp := iat + expiresIn
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	respBody := fmt.Sprintf(`{
@@ -246,7 +253,7 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 		"token_type": "Bearer",
 		"expires_in": %d,
 		"id_token": "%s"
-	}`, 3600, jwtSign(fmt.Sprintf(`{
+	}`, expiresIn, jwtSign(fmt.Sprintf(`{
 		"iss": "%s",
 		"aud": "%s",
 		"sub": "sss",
@@ -281,14 +288,20 @@ func jwtSign(payload string, key ed25519.PrivateKey) string {
 	return headerPayload + "." + base64url(ed25519.Sign(key, []byte(headerPayload)))
 }
 
-func jwtVerify(jwt string, key ed25519.PublicKey, claims any) bool {
+func jwtVerify(jwt string, key ed25519.PublicKey, claims map[string]any) bool {
 	if header, payloadSignature, ok := strings.Cut(jwt, "."); ok {
 		payload, signature, ok := strings.Cut(payloadSignature, ".")
 		if ok {
 			if p, err := base64urld(payload); err == nil {
 				if s, err := base64urld(signature); err == nil {
 					if ed25519.Verify(key, []byte(header+"."+payload), s) {
-						return (json.Unmarshal(p, claims) == nil)
+						if json.Unmarshal(p, &claims) == nil {
+							if expv, ok := claims["exp"]; ok {
+								if expn, ok := expv.(float64); ok {
+									return time.Now().Before(time.Unix(int64(expn), 0))
+								}
+							}
+						}
 					}
 				}
 			}

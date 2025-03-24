@@ -90,7 +90,7 @@ all: *
         "openid", "sub")
     -> inlineContent("OK\n")
     -> <shunt>;
-' -oidc-secrets-file=/tmp/secret.txt -application-log-level=debug
+' -oidc-secrets-file=/tmp/secret.txt -oidc-cookie-validity=1h -application-log-level=debug
 ...
 [APP]INFO[0000] Listen on :9090
 ...
