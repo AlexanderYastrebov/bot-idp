@@ -1,12 +1,12 @@
-# bot-idp
+# ⛏️ bot-idp
 
-`bot-idp` is an OpenID Connect Provider that authorizes user browser
+`bot-idp` is an [OpenID Connect](https://openid.net/developers/how-connect-works/) Provider that authorizes user browser
 via [proof-of-work](https://en.wikipedia.org/wiki/Proof_of_work).
 It is intended to slow down (AI) bots and scrapers.
 
 # How it works
 
-`bot-idp` works with any `reverse-proxy` that supports [OpenID Connect](https://openid.net/developers/how-connect-works/) protocol:
+`bot-idp` works with any `reverse-proxy` that supports OpenID Connect protocol:
 
 1. End user **navigates to a website or web application** via a browser.
 2. `reverse-proxy` checks authentication **cookie** and proxies to the backend if it is valid.
@@ -31,6 +31,7 @@ $ DEBUG=1 DIFFICULTY=16 ADDRESS=:4159 SECRET="$SECRET" CLIENT_ID=bot-idp CLIENT_
 ```
 
 or via Docker:
+
 ```console
 $ SECRET=$(head -c 32 /dev/urandom | base64 | tr '/+' '_-' | tr -d '=')
 $ docker pull ghcr.io/alexanderyastrebov/idp-bot:latest
