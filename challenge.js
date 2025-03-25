@@ -14,7 +14,7 @@ async function challenge(params) {
     let nonce = 0n;
     var hash;
     do {
-        view.setBigInt64(blockLen, ++nonce);
+        view.setBigUint64(blockLen, ++nonce);
         hash = await window.crypto.subtle.digest("SHA-256", view.buffer)
             .then(value => {
                 if (new DataView(value).getBigUint64(0) <= hashTarget) {
@@ -25,16 +25,9 @@ async function challenge(params) {
     } while (!hash);
 
     const duration = Date.now() - start;
-    const msg = `💎 Found ${hash} in ${duration / 1000} ms`
+    const msg = `💎 Found ${hash} in ${duration} ms`
     console.log(msg);
     params.log && params.log(msg);
 
-    const redirectUri = new URL(params.redirectUri);
-    redirectUri.searchParams.set("code", nonce + "." + hash + "." + params.signature);
-
-    console.log("redirectUri", redirectUri);
-
-    setTimeout(() => {
-        document.location = redirectUri;
-    }, "1000");
+    return nonce + "." + hash;
 }

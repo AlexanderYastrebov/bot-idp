@@ -136,18 +136,18 @@ func (config *config) authorizeHandler(w http.ResponseWriter, r *http.Request) {
 	q.Set("state", r.FormValue("state"))
 	ru.RawQuery = q.Encode()
 
-	challenge(w, r, config.signingKeyPriv, config.difficulty, ru.String())
+	config.challenge(w, ru.String())
 }
 
 //go:embed challenge.js
 var challengeJs string
 
-func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, difficulty int, redirectUri string) {
+func (config *config) challenge(w http.ResponseWriter, redirectUri string) {
 	block := make([]byte, 32)
 	rand.Read(block)
 
 	// challenge is short-lived
-	expiresIn := int64(10)
+	expiresIn := int64(60)
 	iat := time.Now().Unix()
 	exp := iat + expiresIn
 
@@ -155,7 +155,7 @@ func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, d
 	signature := jwtSign(fmt.Sprintf(`{
 		"exp": %d,
 		"block": "%s"
-	}`, exp, base64url(block)), key)
+	}`, exp, base64url(block)), config.signingKeyPriv)
 
 	fmt.Fprintf(w, `<!doctype html>
 <html lang=en>
@@ -169,14 +169,24 @@ func challenge(w http.ResponseWriter, _ *http.Request, key ed25519.PrivateKey, d
 					const out = document.getElementById("out");
 					out.innerHTML = out.innerHTML.trimEnd() + "\n" + msg;
 				};
-				await challenge({blockHex: "%s", signature: "%s", difficulty: %d, redirectUri: "%s", log: log});
+
+				const code = await challenge({blockHex: "%s", difficulty: %d, log: log});
+
+				const redirectUri = new URL("%s");
+				redirectUri.searchParams.set("code", code + "." + "%s");
+
+				log('✨ Continue to the <a href="' + redirectUri + '">site</a>...');
+
+				if (%t) {
+					document.location = redirectUri;
+				}
 			})();
 		</script>
 	</head>
 	<body>
 		<pre id="out">⛏️ Let's solve a challenge, shall we?</pre>
 	</body>
-</html>%s`, challengeJs, blockHex, signature, difficulty, redirectUri, "\n")
+</html>%s`, challengeJs, blockHex, config.difficulty, redirectUri, signature, (config.debug == ""), "\n")
 }
 
 func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
