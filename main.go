@@ -165,15 +165,20 @@ func (config *config) challenge(w http.ResponseWriter, redirectUri string) {
 		<script>%s</script>
 		<script>
 			(async() => {
-				const log = (msg)=>{
+				const log = (msg) => {
 					const out = document.getElementById("out");
 					out.innerHTML = out.innerHTML.trimEnd() + "\n" + msg;
 				};
+				const start = Date.now();
 
-				const code = await challenge({blockHex: "%s", difficulty: %d, log: log});
+				const { nonce, hashHex } = await challenge({blockHex: "%s", difficulty: %d});
+
+				const duration = Date.now() - start;
+
+				log('💎 Found ' + hashHex + ' in ' + duration + ' ms');
 
 				const redirectUri = new URL("%s");
-				redirectUri.searchParams.set("code", code + "." + "%s");
+				redirectUri.searchParams.set("code", nonce + "." + hashHex + "." + "%s");
 
 				log('✨ Continue to the <a href="' + redirectUri + '">site</a>...');
 
