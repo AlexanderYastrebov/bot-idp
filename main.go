@@ -60,8 +60,8 @@ func main() {
 
 	slog.Debug("Keys", "config.signingKeyPub", base64url(config.signingKeyPub))
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "I'm OK") })
-	http.HandleFunc("/.well-known/openid-configuration", config.openidConfigurationHandler)
+	http.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "I'm OK") })
+	http.HandleFunc("GET /.well-known/openid-configuration", config.openidConfigurationHandler)
 	http.HandleFunc("/authorize", config.authorizeHandler)
 	http.HandleFunc("POST /token", config.tokenHandler)
 	http.HandleFunc("GET /keys", config.keysHandler)
@@ -70,7 +70,7 @@ func main() {
 	http.ListenAndServe(config.address, nil)
 }
 
-// https://openid.net/specs/openid-connect-discovery-1_0.html
+// https://openid.net/specs/openid-connect-discovery-1_0.html#rfc.section.4
 func (config *config) openidConfigurationHandler(w http.ResponseWriter, _ *http.Request) {
 	fmt.Fprintf(w, `{
   "issuer": "%s",
@@ -104,7 +104,9 @@ func (config *config) openidConfigurationHandler(w http.ResponseWriter, _ *http.
 }%s`, config.issuer, config.issuer, config.issuer, config.issuer, "\n")
 }
 
+// https://openid.net/specs/openid-connect-core-1_0.html#rfc.section.3.1.2.1
 func (config *config) authorizeHandler(w http.ResponseWriter, r *http.Request) {
+	// https://www.rfc-editor.org/rfc/rfc6749.txt#4.1.2.1
 	badRequest := func(msg string) {
 		slog.Debug(msg)
 		http.Error(w, msg, http.StatusBadRequest)
@@ -176,6 +178,7 @@ func replaceAll(t string, params ...any) string {
 	return t
 }
 
+// https://openid.net/specs/openid-connect-core-1_0.html#rfc.section.3.1.3.1
 func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 	unauthorized := func(msg string) {
 		slog.Debug(msg)
@@ -264,16 +267,17 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, respBody)
 }
 
+// https://www.rfc-editor.org/rfc/rfc7517.txt#5
 func (config *config) keysHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	respBody := fmt.Sprintf(`{
-			"keys": [
-				{
-					"kty":"OKP",
-					"crv":"Ed25519",
-					"x":"%s"
-				}
-		]}%s`, base64url(config.signingKeyPub), "\n")
+		"keys": [
+			{
+				"kty":"OKP",
+				"crv":"Ed25519",
+				"x":"%s"
+			}
+	]}%s`, base64url(config.signingKeyPub), "\n")
 	slog.Debug("Response", "body", respBody)
 	fmt.Fprintln(w, respBody)
 }
