@@ -139,14 +139,14 @@ func (config *config) authorizeHandler(w http.ResponseWriter, r *http.Request) {
 	config.challenge(w, ru.String())
 }
 
-//go:embed challenge.js
-var challengeJs string
+//go:embed challenge.html
+var challengeHtml string
 
 func (config *config) challenge(w http.ResponseWriter, redirectUri string) {
 	block := make([]byte, 32)
 	rand.Read(block)
 
-	// challenge is short-lived
+	// make challenge short-lived
 	expiresIn := int64(60)
 	iat := time.Now().Unix()
 	exp := iat + expiresIn
@@ -157,41 +157,21 @@ func (config *config) challenge(w http.ResponseWriter, redirectUri string) {
 		"block": "%s"
 	}`, exp, base64url(block)), config.signingKeyPriv)
 
-	fmt.Fprintf(w, `<!doctype html>
-<html lang=en>
-	<head>
-		<meta charset="utf-8">
-		<title>Welcome</title>
-		<script>%s</script>
-		<script>
-			(async() => {
-				const log = (msg) => {
-					const out = document.getElementById("out");
-					out.innerHTML = out.innerHTML.trimEnd() + "\n" + msg;
-				};
-				const start = Date.now();
+	fmt.Fprint(w, replaceAll(challengeHtml,
+		"{{standalone}}", "",
+		"{{debug}}", config.debug,
+		"{{blockHex}}", blockHex,
+		"{{difficulty}}", config.difficulty,
+		"{{signature}}", signature,
+		"{{redirectUri}}", redirectUri,
+	))
+}
 
-				const { nonce, hashHex } = await challenge({blockHex: "%s", difficulty: %d});
-
-				const duration = Date.now() - start;
-
-				log('💎 Found ' + hashHex + ' in ' + duration + ' ms');
-
-				const redirectUri = new URL("%s");
-				redirectUri.searchParams.set("code", nonce + "." + hashHex + "." + "%s");
-
-				log('✨ Continue to the <a href="' + redirectUri + '">site</a>...');
-
-				if (%t) {
-					document.location = redirectUri;
-				}
-			})();
-		</script>
-	</head>
-	<body>
-		<pre id="out">⛏️ Let's solve a challenge, shall we?</pre>
-	</body>
-</html>%s`, challengeJs, blockHex, config.difficulty, redirectUri, signature, (config.debug == ""), "\n")
+func replaceAll(t string, params ...any) string {
+	for i := 0; i < len(params); i += 2 {
+		t = strings.ReplaceAll(t, fmt.Sprintf("%v", params[i]), fmt.Sprintf("%v", params[i+1]))
+	}
+	return t
 }
 
 func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {

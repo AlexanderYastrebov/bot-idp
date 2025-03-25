@@ -67,21 +67,15 @@ and navigate to http://oauth2-proxy.localtest.me:4180/
 ```diff
 $ git --no-pager diff
 diff --git a/filters/auth/oidc.go b/filters/auth/oidc.go
-index 88c952c5..bc7d62d6 100644
+index 88c952c5..f6478f4b 100644
 --- a/filters/auth/oidc.go
 +++ b/filters/auth/oidc.go
-@@ -489,10 +489,10 @@ func getHost(request *http.Request) string {
-
- func (f *tokenOidcFilter) createOidcCookie(ctx filters.FilterContext, name string, value string, maxAge int) (cookie *http.Cookie) {
-        return &http.Cookie{
--               Name:     name,
--               Value:    value,
--               Path:     "/",
+@@ -492,7 +492,7 @@ func (f *tokenOidcFilter) createOidcCookie(ctx filters.FilterContext, name strin
+                Name:     name,
+                Value:    value,
+                Path:     "/",
 -               Secure:   true,
-+               Name:  name,
-+               Value: value,
-+               Path:  "/",
-+               //Secure:   true,
++               Secure:   false,
                 HttpOnly: true,
                 MaxAge:   maxAge,
                 Domain:   extractDomainFromHost(getHost(ctx.Request()), f.subdomainsToRemove),
