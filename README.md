@@ -23,19 +23,36 @@ It is intended to slow down (AI) bots and scrapers.
 
 Run from source repository:
 
-```console
-$ SECRET=$(head -c 32 /dev/urandom | base64)
-$ DEBUG=1 DIFFICULTY=16 ADDRESS=:4159 SECRET="$SECRET" CLIENT_ID=bot-idp CLIENT_SECRET=secret1 ISSUER=http://localhost:4159 go run .
+```shell
+DEBUG=1 \
+DIFFICULTY=16 \
+ADDRESS=:4159 \
+SECRET=$(head -c 32 /dev/urandom | base64) \
+CLIENT_ID=bot-idp \
+CLIENT_SECRET=secret1 \
+ISSUER=http://localhost:4159 \
+EXPIRES_IN=3600 \
+go run .
+```
+```
 2025/03/23 21:21:08 DEBUG Keys signingKeyPub=11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo
 2025/03/23 21:21:08 INFO Listen address=:4159
 ```
 
 or via Docker:
 
-```console
-$ docker pull ghcr.io/alexanderyastrebov/bot-idp:latest
-$ SECRET=$(head -c 32 /dev/urandom | base64)
-$ docker run -p 4159:4159 -e DEBUG=1 -e DIFFICULTY=16 -e ADDRESS=:4159 -e SECRET="$SECRET" -e CLIENT_ID=bot-idp -e CLIENT_SECRET=secret1 -e ISSUER=http://localhost:4159 ghcr.io/alexanderyastrebov/bot-idp
+```shell
+docker pull ghcr.io/alexanderyastrebov/bot-idp:latest
+docker run -p 4159:4159 \
+-e DEBUG=1 \
+-e DIFFICULTY=16 \
+-e ADDRESS=:4159 \
+-e SECRET=$(head -c 32 /dev/urandom | base64) \
+-e CLIENT_ID=bot-idp \
+-e CLIENT_SECRET=secret1 \
+-e ISSUER=http://localhost:4159 \
+-e EXPIRES_IN=3600 \
+ghcr.io/alexanderyastrebov/bot-idp
 ```
 
 Increase `DIFFICULTY` to harden the challenge.
@@ -45,9 +62,10 @@ Increase `DIFFICULTY` to harden the challenge.
 Run [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
 using [example config](doc/oauth2-proxy.cfg):
 
-```console
-$ head -c 32 /dev/urandom | base64 | tr '/+' '_-' > /tmp/secret.txt
-$ docker run --rm -it --network=host -v ./doc/oauth2-proxy.cfg:/oauth2-proxy.cfg quay.io/oauth2-proxy/oauth2-proxy:v7.8.1 --config /oauth2-proxy.cfg --cookie-secret=$(cat /tmp/secret.txt)
+```shell
+docker run --rm -it --network=host -v ./doc/oauth2-proxy.cfg:/oauth2-proxy.cfg quay.io/oauth2-proxy/oauth2-proxy:v7.8.1 --config /oauth2-proxy.cfg --cookie-secret=$(head -c 32 /dev/urandom | base64 | tr '/+' '_-')
+```
+```
 [2025/03/23 21:42:31] [provider.go:55] Performing OIDC Discovery...
 [2025/03/23 21:42:31] [proxy.go:77] mapping path "/" => static response 200
 [2025/03/23 21:42:31] [oauthproxy.go:172] OAuthProxy configured for OpenID Connect Client ID: bot-idp
@@ -83,9 +101,9 @@ index 88c952c5..f6478f4b 100644
 
 </details>
 
-```console
-$ head -c 32 /dev/urandom | base64 > /tmp/secret.txt
-$ go run ./cmd/skipper/ -inline-routes='
+```shell
+head -c 32 /dev/urandom | base64 > /tmp/secret.txt
+go run ./cmd/skipper/ -inline-routes='
 all: *
     -> oauthOidcAllClaims("http://localhost:4159",
         "bot-idp", "secret1",
@@ -94,6 +112,8 @@ all: *
     -> inlineContent("OK\n")
     -> <shunt>;
 ' -oidc-secrets-file=/tmp/secret.txt -oidc-cookie-validity=1h -application-log-level=debug
+```
+```
 ...
 [APP]INFO[0000] Listen on :9090
 ...

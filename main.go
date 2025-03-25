@@ -27,6 +27,7 @@ type config struct {
 	clientSecret string
 	issuer       string
 	difficulty   int
+	expiresIn    int
 
 	signingKeyPriv ed25519.PrivateKey
 	signingKeyPub  ed25519.PublicKey
@@ -42,6 +43,7 @@ func main() {
 		clientSecret: os.Getenv("CLIENT_SECRET"),
 		issuer:       withDefault(os.Getenv("ISSUER"), "https://github.com/AlexanderYastrebov/bot-idp"),
 		difficulty:   must(strconv.Atoi(withDefault(os.Getenv("DIFFICULTY"), "16"))),
+		expiresIn:    must(strconv.Atoi(withDefault(os.Getenv("EXPIRES_IN"), "3600"))),
 	}
 
 	if config.debug != "" {
@@ -236,7 +238,7 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	expiresIn := int64(10)
+	expiresIn := int64(config.expiresIn)
 	iat := time.Now().Unix()
 	exp := iat + expiresIn
 
