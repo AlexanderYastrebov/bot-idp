@@ -67,7 +67,7 @@ func main() {
 	http.HandleFunc("GET /keys", config.keysHandler)
 
 	slog.Info("Listen", "address", config.address)
-	http.ListenAndServe(config.address, nil)
+	slog.Info("Done", "err", http.ListenAndServe(config.address, nil))
 }
 
 // https://openid.net/specs/openid-connect-discovery-1_0.html#rfc.section.4
