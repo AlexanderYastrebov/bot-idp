@@ -9,8 +9,10 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"expvar"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +24,7 @@ import (
 type config struct {
 	address      string
 	debug        string
+	debugAddress string
 	secret       string
 	clientId     string
 	clientSecret string
@@ -31,6 +34,13 @@ type config struct {
 
 	signingKeyPriv ed25519.PrivateKey
 	signingKeyPub  ed25519.PublicKey
+
+	metrics struct {
+		requests      *expvar.Int
+		durationCount *expvar.Int
+		durationSum   *expvar.Float
+		durationAvg   expvar.Func
+	}
 }
 
 // https://openid.net/specs/openid-connect-core-1_0.html#CodeFlowSteps
@@ -38,6 +48,7 @@ func main() {
 	config := &config{
 		address:      withDefault(os.Getenv("ADDRESS"), ":4159"),
 		debug:        os.Getenv("DEBUG"),
+		debugAddress: withDefault(os.Getenv("DEBUG_ADDRESS"), ":5941"),
 		secret:       os.Getenv("SECRET"),
 		clientId:     withDefault(os.Getenv("CLIENT_ID"), "bot-idp"),
 		clientSecret: os.Getenv("CLIENT_SECRET"),
@@ -48,11 +59,6 @@ func main() {
 
 	if config.debug != "" {
 		slog.SetLogLoggerLevel(slog.LevelDebug)
-
-		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-			slog.Debug("Request", "method", r.Method, "url", r.URL)
-			http.NotFound(w, r)
-		})
 	}
 
 	config.signingKeyPriv = ed25519.NewKeyFromSeed(must(base64DecodeString(config.secret)))
@@ -60,14 +66,44 @@ func main() {
 
 	slog.Debug("Keys", "config.signingKeyPub", base64url(config.signingKeyPub))
 
-	http.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "I'm OK") })
-	http.HandleFunc("GET /.well-known/openid-configuration", config.openidConfigurationHandler)
-	http.HandleFunc("/authorize", config.authorizeHandler)
-	http.HandleFunc("POST /token", config.tokenHandler)
-	http.HandleFunc("GET /keys", config.keysHandler)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "I'm OK") })
+	mux.HandleFunc("GET /.well-known/openid-configuration", config.openidConfigurationHandler)
+	mux.HandleFunc("/authorize", config.authorizeHandler)
+	mux.HandleFunc("POST /token", config.tokenHandler)
+	mux.HandleFunc("GET /keys", config.keysHandler)
+	if config.debug != "" {
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			slog.Debug("Non found", "method", r.Method, "url", r.URL)
+			http.NotFound(w, r)
+		})
+	}
+
+	metrics := &config.metrics
+	metrics.requests = expvar.NewInt("requests")
+	metrics.durationCount = expvar.NewInt("duration_count")
+	metrics.durationSum = expvar.NewFloat("duration_sum")
+	metrics.durationAvg = expvar.Func(func() any {
+		return metrics.durationSum.Value() / max(float64(metrics.durationCount.Value()), math.Nextafter(0, 1))
+	})
+	expvar.Publish("duration_avg", metrics.durationAvg)
+
+	go func() {
+		for range time.NewTicker(time.Minute).C {
+			avg := config.metrics.durationAvg.Value().(float64)
+			config.metrics.durationSum.Set(avg)
+			config.metrics.durationCount.Set(1)
+		}
+	}()
+
+	slog.Info("Listen debug", "address", config.debugAddress)
+	go func() { slog.Info("Done debug.", "err", http.ListenAndServe(config.debugAddress, nil)) }()
 
 	slog.Info("Listen", "address", config.address)
-	slog.Info("Done", "err", http.ListenAndServe(config.address, nil))
+	slog.Info("Done.", "err", http.ListenAndServe(config.address, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(w, r)
+		config.metrics.requests.Add(1)
+	})))
 }
 
 // https://openid.net/specs/openid-connect-discovery-1_0.html#rfc.section.4
@@ -106,6 +142,7 @@ func (config *config) openidConfigurationHandler(w http.ResponseWriter, _ *http.
 
 // https://openid.net/specs/openid-connect-core-1_0.html#rfc.section.3.1.2.1
 func (config *config) authorizeHandler(w http.ResponseWriter, r *http.Request) {
+	slog := slog.With("handler", "authorizeHandler")
 	// https://www.rfc-editor.org/rfc/rfc6749.txt#4.1.2.1
 	badRequest := func(msg string) {
 		slog.Debug(msg)
@@ -140,26 +177,30 @@ func (config *config) authorizeHandler(w http.ResponseWriter, r *http.Request) {
 	q.Set("state", r.FormValue("state"))
 	ru.RawQuery = q.Encode()
 
-	config.challenge(w, ru.String())
+	config.challenge(w, ru.String(), slog)
 }
 
 //go:embed challenge.html
 var challengeHtml string
 
-func (config *config) challenge(w http.ResponseWriter, redirectUri string) {
+func (config *config) challenge(w http.ResponseWriter, redirectUri string, slog *slog.Logger) {
 	block := make([]byte, 32)
 	rand.Read(block)
 
 	// make challenge short-lived
 	expiresIn := int64(60)
-	iat := time.Now().Unix()
-	exp := iat + expiresIn
+	now := time.Now()
+	iatms := now.UnixMilli()
+	exp := now.Unix() + expiresIn
 
 	blockHex := hex.EncodeToString(block)
 	signature := jwtSign(fmt.Sprintf(`{
+		"iatms": %d,
 		"exp": %d,
 		"block": "%s"
-	}`, exp, base64url(block)), config.signingKeyPriv)
+	}`, iatms, exp, base64url(block)), config.signingKeyPriv)
+
+	slog.Debug("challenge", "difficulty", config.difficulty)
 
 	fmt.Fprint(w, replaceAll(challengeHtml,
 		"{{standalone}}", "",
@@ -180,6 +221,7 @@ func replaceAll(t string, params ...any) string {
 
 // https://openid.net/specs/openid-connect-core-1_0.html#rfc.section.3.1.3.1
 func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
+	slog := slog.With("handler", "tokenHandler")
 	unauthorized := func(msg string) {
 		slog.Debug(msg)
 		http.Error(w, "Unauthorized", http.StatusUnauthorized)
@@ -225,6 +267,11 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 	slog.Debug("signature", "claims", claims)
 
 	// trust payload due to valid signature
+	duration := time.Duration(time.Now().UnixMilli()-int64(claims["iatms"].(float64))) * time.Millisecond
+	config.metrics.durationCount.Add(1)
+	config.metrics.durationSum.Add(duration.Seconds())
+	slog.Debug("challenge", "duration", duration)
+
 	block, _ := base64urld(claims["block"].(string))
 	nonce, err := strconv.ParseUint(nonceDec, 10, 64)
 	if err != nil {
@@ -269,6 +316,7 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 
 // https://www.rfc-editor.org/rfc/rfc7517.txt#5
 func (config *config) keysHandler(w http.ResponseWriter, r *http.Request) {
+	slog := slog.With("handler", "keysHandler")
 	w.Header().Set("Content-Type", "application/json")
 	respBody := fmt.Sprintf(`{
 		"keys": [

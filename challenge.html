@@ -51,6 +51,7 @@
             const log = (msg) => {
                 const out = document.getElementById("out");
                 out.innerHTML = out.innerHTML.trimEnd() + "\n" + msg;
+                console.log(msg);
             };
 
             log("⛏️ Let's solve a challenge, shall we?");
