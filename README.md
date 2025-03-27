@@ -90,4 +90,8 @@ go run github.com/zalando/skipper/cmd/skipper@latest -config-file=./doc/skipper.
 
 and navigate to http://skipper.localtest.me:9090/
 
-See [documentation](https://opensource.zalando.com/skipper/reference/filters/#oauthoidcallclaims) for configuration details.
+> [!NOTE]
+> This example uses routes generated from [Anubis](https://github.com/TecharoHQ/anubis) `botPolicies.json`
+> via [anubis2eskip](./cmd/anubis2eskip/main.go) tool.
+
+See [Skipper documentation](https://opensource.zalando.com/skipper/reference/filters/#oauthoidcallclaims) for configuration details.
