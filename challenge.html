@@ -60,9 +60,10 @@
 
             const { nonce, hashHex } = await challenge({ blockHex: params.blockHex, difficulty: params.difficulty });
 
-            const duration = Date.now() - start;
+            const duration = BigInt(Date.now() - start);
 
-            log(`💎 Found ${hashHex} in ${duration} ms`);
+            log(`💎 Found ${nonce} in ${duration} ms (${nonce * 1000n / duration} op/s, ${duration * 1000n / nonce} µs/op)`);
+            log(`#️ ${hashHex}`);
 
             const location = new URL(params.redirectUri);
             location.searchParams.set("code", nonce + "." + hashHex + "." + params.signature);
