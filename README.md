@@ -59,8 +59,7 @@ Increase `DIFFICULTY` to harden the challenge.
 
 ## With oauth2-proxy
 
-Run [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/)
-using [example config](doc/oauth2-proxy.cfg):
+Run [oauth2-proxy](https://oauth2-proxy.github.io/oauth2-proxy/) using [example config](doc/oauth2-proxy.cfg):
 
 ```shell
 docker run --rm -it --network=host -v ./doc/oauth2-proxy.cfg:/oauth2-proxy.cfg quay.io/oauth2-proxy/oauth2-proxy:v7.8.1 --config /oauth2-proxy.cfg --cookie-secret=$(head -c 32 /dev/urandom | base64 | tr '/+' '_-')
@@ -77,41 +76,11 @@ and navigate to http://oauth2-proxy.localtest.me:4180/
 
 ## With Skipper
 
-[Skipper](https://github.com/zalando/skipper) does not allow insecure cookies, so run using patched Skipper:
-
-<details>
-<summary>diff</summary>
-
-```diff
-$ git --no-pager diff
-diff --git a/filters/auth/oidc.go b/filters/auth/oidc.go
-index 88c952c5..f6478f4b 100644
---- a/filters/auth/oidc.go
-+++ b/filters/auth/oidc.go
-@@ -492,7 +492,7 @@ func (f *tokenOidcFilter) createOidcCookie(ctx filters.FilterContext, name strin
-                Name:     name,
-                Value:    value,
-                Path:     "/",
--               Secure:   true,
-+               Secure:   false,
-                HttpOnly: true,
-                MaxAge:   maxAge,
-                Domain:   extractDomainFromHost(getHost(ctx.Request()), f.subdomainsToRemove),
-```
-
-</details>
+Run [Skipper](https://github.com/zalando/skipper) using [example config](doc/skipper.yaml):
 
 ```shell
 head -c 32 /dev/urandom | base64 > /tmp/secret.txt
-go run ./cmd/skipper/ -inline-routes='
-all: *
-    -> oauthOidcAllClaims("http://localhost:4159",
-        "bot-idp", "secret1",
-        "http://skipper.localtest.me:9090/oauth2/callback",
-        "openid", "sub")
-    -> inlineContent("OK\n")
-    -> <shunt>;
-' -oidc-secrets-file=/tmp/secret.txt -oidc-cookie-validity=1h -application-log-level=debug
+go run github.com/zalando/skipper/cmd/skipper@latest -config-file=./doc/skipper.yaml
 ```
 ```
 ...

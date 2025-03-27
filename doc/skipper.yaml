@@ -1,0 +1,22 @@
+# See skipper documentation:
+# * https://github.com/zalando/skipper/blob/master/docs/tutorials/basics.md
+# * https://github.com/zalando/skipper/blob/master/docs/reference/filters.md#openid-connect
+application-log-level: info
+address: :9090
+oidc-secrets-file: /tmp/secret.txt
+oidc-cookie-validity: 1h
+proxy-preserve-host: false # use Host header from the backend address
+inline-routes: |
+  all: *
+      // Skipper does not allow insecure cookies,
+      // so drop Secure attribute as a workaroound:
+      -> modResponseHeader("Set-Cookie", "(.+); Secure(.*)", "$1$2")
+
+      // Configure bot-idp as an OpenID Connect Provider,
+      -> oauthOidcAllClaims("http://localhost:4159",
+          "bot-idp", "secret1",
+          "http://skipper.localtest.me:9090/oauth2/callback",
+          "openid", "sub")
+
+      // Backend address
+      -> "https://example.org";
