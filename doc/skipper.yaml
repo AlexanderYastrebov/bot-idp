@@ -6,8 +6,9 @@ address: :9090
 oidc-secrets-file: /tmp/secret.txt
 oidc-cookie-validity: 1h
 proxy-preserve-host: false # use Host header from the backend address
+routes-file: ./doc/botPolicies.eskip # use botPolicies.eskip generated from [Anubis](https://github.com/TecharoHQ/anubis) botPolicies.json
 inline-routes: |
-  all: *
+  challenge: *
       // Skipper does not allow insecure cookies,
       // so drop Secure attribute as a workaroound:
       -> modResponseHeader("Set-Cookie", "(.+); Secure(.*)", "$1$2")
