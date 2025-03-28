@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -203,7 +204,7 @@ func (config *config) challenge(w http.ResponseWriter, redirectUri string, slog 
 	slog.Debug("challenge", "difficulty", config.difficulty)
 
 	fmt.Fprint(w, replaceAll(challengeHtml,
-		"{{standalone}}", "",
+		"{{file}}", "",
 		"{{debug}}", config.debug,
 		"{{blockHex}}", blockHex,
 		"{{difficulty}}", config.difficulty,
@@ -255,9 +256,9 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 		unauthorized("👎 code")
 		return
 	}
-	nonceDec, hash, signature := parts[0], parts[1], parts[2]
+	nonceDec, hashHex, signature := parts[0], parts[1], parts[2]
 
-	slog.Debug("code", "nonce", nonceDec, "hash", hash, "signature", signature)
+	slog.Debug("code", "nonce", nonceDec, "hashHex", hashHex, "signature", signature)
 
 	claims := make(map[string]any)
 	if !jwtVerify(signature, config.signingKeyPub, claims) {
@@ -266,6 +267,12 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Debug("signature", "claims", claims)
 
+	hash, err := hex.DecodeString(hashHex)
+	if err != nil || len(hash) != 32 || beUint64(hash) > 1<<(63-config.difficulty) {
+		unauthorized("👎 hash")
+		return
+	}
+
 	// trust payload due to valid signature
 	duration := time.Duration(time.Now().UnixMilli()-int64(claims["iatms"].(float64))) * time.Millisecond
 	config.metrics.durationCount.Add(1)
@@ -273,6 +280,7 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 	slog.Debug("challenge", "duration", duration)
 
 	block, _ := base64urld(claims["block"].(string))
+
 	nonce, err := strconv.ParseUint(nonceDec, 10, 64)
 	if err != nil {
 		unauthorized("👎 nonce")
@@ -282,8 +290,9 @@ func (config *config) tokenHandler(w http.ResponseWriter, r *http.Request) {
 	h := sha256.New()
 	h.Write(block)
 	binary.Write(h, binary.BigEndian, nonce)
+	sum := h.Sum(nil)
 
-	if hash != hex.EncodeToString(h.Sum(nil)) {
+	if !bytes.Equal(hash, sum) {
 		unauthorized("👎 hash")
 		return
 	}
@@ -361,6 +370,7 @@ func jwtVerify(jwt string, key ed25519.PublicKey, claims map[string]any) bool {
 var (
 	base64url  = base64.RawURLEncoding.EncodeToString
 	base64urld = base64.RawURLEncoding.DecodeString
+	beUint64   = binary.BigEndian.Uint64
 )
 
 // base64DecodeString detects base64 variant and decodes s.
